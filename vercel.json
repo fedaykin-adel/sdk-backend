@@ -1,7 +1,9 @@
 {
   "functions": {
     "api/**/*.rs": {
-      "runtime": "vercel-rust@4.0.9"
+      "runtime": "vercel-rust@4.0.12",
+      "memory": 1024,
+      "maxDuration": 10
     }
   }
 }
