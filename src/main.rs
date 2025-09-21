@@ -79,6 +79,7 @@ async fn get_graph() -> anyhow::Result<Arc<Graph>> {
         .uri(&uri)
         .user(&user)
         .password(&pass)
+        .db("37d88777")
         .max_connections(1) // estável para testes / evita EBUSY
         .fetch_size(1000)
         .build()
