@@ -1,45 +1,47 @@
 use http::Method;
 use neo4rs::{ConfigBuilder, Graph};
 use shaayud_core::{EventoInput, handle_ingest};
+use std::sync::OnceLock;
 use std::{env, sync::Arc};
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, Semaphore};
 use vercel_runtime::{Body, Error, Request, Response, StatusCode, run};
 // Conexão global (reutilizada entre invocações)
 
-// cache global, inicializado na 1ª chamada
 static GRAPH: OnceCell<Arc<Graph>> = OnceCell::const_new();
+// limite de concorrência para evitar "busy" transiente
+static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 async fn get_graph() -> Result<Arc<Graph>, Error> {
     if let Some(g) = GRAPH.get() {
         return Ok(g.clone());
     }
-
-    // Leia as ENV e valide (sem panic)
     let uri = env::var("NEO4J_URL").map_err(|_| err("NEO4J_URL ausente"))?;
     let user = env::var("NEO4J_USER").map_err(|_| err("NEO4J_USER ausente"))?;
     let pass = env::var("NEO4J_PASS").map_err(|_| err("NEO4J_PASS ausente"))?;
 
-    eprintln!("🔌 Conectando Neo4j em {}", uri); // aparece nos logs da Vercel
-
+    eprintln!("🔌 Conectando Neo4j em {uri}");
     let cfg = ConfigBuilder::default()
         .uri(&uri)
         .user(&user)
         .password(&pass)
+        // 👉 aumente o pool para lidar com bursts (ajuste conforme precisar)
+        .max_connections(12) // <— importante
+        .fetch_size(1000) // opcional
         .build()
-        .map_err(|e| err(format!("Config Neo4j inválida: {e}")))?;
+        .map_err(|e| err(format!("Config Neo4j inválida: {e:?}")))?;
 
     let graph = Graph::connect(cfg)
         .await
-        .map_err(|e| err(format!("Falha ao conectar Neo4j: {e}")))?;
-
+        .map_err(|e| err(format!("Falha ao conectar Neo4j: {e:?}")))?;
     let arc = Arc::new(graph);
     let _ = GRAPH.set(arc.clone());
+    SEM.set(Arc::new(Semaphore::new(8))).ok(); // <— limita 8 requisições simultâneas no handler
     eprintln!("✅ Conectado ao Neo4j");
     Ok(arc)
 }
 
 fn err<T: ToString>(msg: T) -> Error {
-    // transforma string em vercel_runtime::Error
+    // mantenha os detalhes (Debug) nas mensagens
     Error::from(std::io::Error::new(
         std::io::ErrorKind::Other,
         msg.to_string(),
@@ -71,7 +73,7 @@ async fn handler(req: Request) -> Result<Response<Body>, Error> {
     let payload: EventoInput = match serde_json::from_slice(&bytes) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("❌ JSON inválido: {e}");
+            eprintln!("❌ JSON inválido: {e:?}");
             return Ok(Response::builder()
                 .status(StatusCode::UNPROCESSABLE_ENTITY)
                 .body(Body::Text("invalid payload".into()))?);
@@ -80,17 +82,25 @@ async fn handler(req: Request) -> Result<Response<Body>, Error> {
 
     let graph = get_graph().await?;
 
-    if let Err(e) = handle_ingest(payload, &graph).await {
-        eprintln!("💥 handle_ingest erro: {e}");
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::Text(format!("ingest error: {e}")))?);
-    }
+    // 🔒 segura a concorrência
+    let sem = SEM.get().expect("sem init");
+    let _permit = sem.acquire().await.unwrap();
 
-    eprintln!("✅ ingest OK");
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .body(Body::Text("ok".into()))?)
+    match handle_ingest(payload, &graph).await {
+        Ok(_) => {
+            eprintln!("✅ ingest OK");
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(Body::Text("ok".into()))?)
+        }
+        Err(e) => {
+            // LOG COMPLETO (Debug) — isso vai aparecer nos logs da Vercel
+            eprintln!("💥 handle_ingest ERRO: {e:?}");
+            Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::Text(format!("ingest error: {e:?}")))?)
+        }
+    }
 }
 
 #[tokio::main]
