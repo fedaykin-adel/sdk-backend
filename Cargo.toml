@@ -23,3 +23,7 @@ neo4rs = "0.8"
 once_cell = "1.19"
 # hyper = "1.7"
 http = "1.3"
+
+[[bin]]
+name = "ingest"
+path = "api/ingest.rs"
