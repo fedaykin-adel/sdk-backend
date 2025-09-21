@@ -25,7 +25,7 @@ async fn get_graph() -> Result<Arc<Graph>, Error> {
         .user(&user)
         .password(&pass)
         // 👉 aumente o pool para lidar com bursts (ajuste conforme precisar)
-        .max_connections(12) // <— importante
+        .max_connections(4) // <— importante
         .fetch_size(1000) // opcional
         .build()
         .map_err(|e| err(format!("Config Neo4j inválida: {e:?}")))?;
