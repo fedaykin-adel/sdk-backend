@@ -22,27 +22,7 @@ static SEM: OnceCell<Arc<Semaphore>> = OnceCell::const_new();
 fn err<S: ToString>(msg: S) -> anyhow::Error {
     anyhow::anyhow!(msg.to_string())
 }
-async fn dns_diag(raw: &str) {
-    let uri = raw.trim().trim_matches('"').trim_matches('\'').to_string();
-    eprintln!("🔧 NEO4J_URL (raw debug) = {:?}", raw);
-    eprintln!("🔧 NEO4J_URL (trimmed)   = {:?}", uri);
 
-    match Url::parse(&uri) {
-        Ok(u) => {
-            let host = u.host_str().unwrap_or("");
-            let port = u.port().unwrap_or(7687);
-            eprintln!("🔎 DNS check… host={host} port={port}");
-            match lookup_host((host, port)).await {
-                Ok(iter) => {
-                    let ips: Vec<_> = iter.map(|s| s.ip()).collect();
-                    eprintln!("✅ DNS OK: {:?}", ips);
-                }
-                Err(e) => eprintln!("❌ DNS FAIL: {e:?}"),
-            }
-        }
-        Err(e) => eprintln!("❌ URL inválida: {e:?}"),
-    }
-}
 /// Aceita NEO4J_URL ou NEO4J_URI; devolve exatamente como veio (sem mexer em porta).
 fn get_neo4j_uri_from_env() -> anyhow::Result<String> {
     env::var("NEO4J_URL")
@@ -56,11 +36,10 @@ async fn get_graph() -> anyhow::Result<Arc<Graph>> {
         return Ok(g.clone());
     }
 
-    let mut uri = get_neo4j_uri_from_env()?;
+    let mut uri = env::var("NEO4J_URL").map_err(|_| err("NEO4J_URL ausente"))?;
     let user = env::var("NEO4J_USER").map_err(|_| err("NEO4J_USER ausente"))?;
     let pass = env::var("NEO4J_PASS").map_err(|_| err("NEO4J_PASS ausente"))?;
     uri = uri.trim().trim_matches('"').trim_matches('\'').to_string();
-    dns_diag(&uri).await;
 
     // logs seguros
     eprintln!("🔌 Conectando Neo4j em {uri}");
