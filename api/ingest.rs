@@ -19,7 +19,7 @@ async fn get_graph() -> Result<Arc<Graph>, Error> {
     let user = env::var("NEO4J_USER").map_err(|_| err("NEO4J_USER ausente"))?;
     let pass = env::var("NEO4J_PASS").map_err(|_| err("NEO4J_PASS ausente"))?;
 
-    eprintln!("🔌 Conectando Neo4j em {uri}");
+    eprintln!("🔌 Conectando Neo4j em {uri} {user} {pass}");
     let cfg = ConfigBuilder::default()
         .uri(&uri)
         .user(&user)
