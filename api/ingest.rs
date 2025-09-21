@@ -25,7 +25,7 @@ async fn get_graph() -> Result<Arc<Graph>, Error> {
         .user(&user)
         .password(&pass)
         // 👉 aumente o pool para lidar com bursts (ajuste conforme precisar)
-        .max_connections(4) // <— importante
+        .max_connections(1) // <— importante
         .fetch_size(1000) // opcional
         .build()
         .map_err(|e| err(format!("Config Neo4j inválida: {e:?}")))?;
@@ -35,7 +35,7 @@ async fn get_graph() -> Result<Arc<Graph>, Error> {
         .map_err(|e| err(format!("Falha ao conectar Neo4j: {e:?}")))?;
     let arc = Arc::new(graph);
     let _ = GRAPH.set(arc.clone());
-    SEM.set(Arc::new(Semaphore::new(8))).ok(); // <— limita 8 requisições simultâneas no handler
+    SEM.set(Arc::new(Semaphore::new(1))).ok(); // <— limita 8 requisições simultâneas no handler
     eprintln!("✅ Conectado ao Neo4j");
     Ok(arc)
 }
